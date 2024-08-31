@@ -1,62 +1,67 @@
 const express = require('express');
-const request = require('request');
-const fs = require('fs');
-const path = require('path');
+const axios = require('axios');
 
 const app = express();
-const port = 3000;
+const PORT = process.env.PORT || 3000;
 
-const upscaleModels = [
-  "ESRGAN_4x",
-  "RealESRGAN_4x",
-  "ESRGAN_SRx4"
+const upscaleTokens = [
+  "6046cf8e-2eb8-487d-99a8-e18f62675328",
+  "20d6877b-f6a2-4501-adee-27cec8206641",
+  // Ajoutez d'autres tokens si nécessaire
 ];
 
-app.get('/upscale', (req, res) => {
-  const { imageUrl, modelIndex = 0, resize = 2 } = req.query;
+let upscaleTokenIndex = 0;
 
-  if (!imageUrl) {
-    return res.status(400).send('Missing required parameter: imageUrl');
+app.post('/upscale-image', async (req, res) => {
+  const { imageUrl, imageData, resize = 2, model = 'ESRGAN_4x' } = req.body;
+
+  if (!imageUrl && !imageData) {
+    return res.status(400).send('Either imageUrl or imageData is required.');
   }
 
-  const parsedModelIndex = parseInt(modelIndex, 10);
-  if (isNaN(parsedModelIndex) || parsedModelIndex < 0 || parsedModelIndex >= upscaleModels.length) {
-    return res.status(400).send('Invalid model index');
-  }
+  try {
+    let response;
+    let success = false;
 
-  const options = {
-    method: 'POST',
-    url: 'https://api.prodia.com/v1/upscale',
-    headers: {
-      accept: 'application/json',
-      'content-type': 'application/json'
-    },
-    body: {
-      resize: parseInt(resize, 10),
-      model: upscaleModels[parsedModelIndex],
-      imageUrl
-    },
-    json: true
-  };
+    const currentToken = upscaleTokens[upscaleTokenIndex];
 
-  request(options, function (error, response, body) {
-    if (error) {
-      console.error(error);
-      return res.status(500).send("An error occurred during the upscaling process");
+    while (!success) {
+      try {
+        response = await axios.post('https://api.prodia.com/v1/upscale', {
+          imageUrl,
+          imageData,
+          resize,
+          model,
+        }, {
+          headers: {
+            'Authorization': `Bearer ${currentToken}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          }
+        });
+
+        success = true;
+      } catch (error) {
+        if (error.response && error.response.status === 403) {
+          console.log("Token expired. Trying with the next token...");
+          upscaleTokenIndex = (upscaleTokenIndex + 1) % upscaleTokens.length;
+        } else {
+          throw new Error(error.message);
+        }
+      }
     }
 
-    if (body && body.url) {
-      const imagePath = path.join(__dirname, 'cache', 'upscaled.png');
-      request(body.url)
-        .pipe(fs.createWriteStream(imagePath))
-        .on('close', () => res.sendFile(imagePath));
+    if (success) {
+      res.json(response.data);
     } else {
-      console.error("Failed to upscale the image");
-      res.status(500).send("Upscaling failed");
+      res.status(500).send('Error upscaling image.');
     }
-  });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('An error occurred.');
+  }
 });
 
-app.listen(port, () => {
-  console.log(`API running on port ${port}`);
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
