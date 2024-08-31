@@ -1,64 +1,55 @@
 const express = require('express');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const upscaleTokens = [
-  "6046cf8e-2eb8-487d-99a8-e18f62675328",
-  "20d6877b-f6a2-4501-adee-27cec8206641",
-  // Ajoutez d'autres tokens si nécessaire
-];
+const apiToken = 'd80b712c-028b-4ba7-a9cf-111f59fb1e7b';
 
-let upscaleTokenIndex = 0;
-
-app.post('/upscale-image', async (req, res) => {
+app.post('/upscale', async (req, res) => {
   const { imageUrl, imageData, resize = 2, model = 'ESRGAN_4x' } = req.body;
 
   if (!imageUrl && !imageData) {
-    return res.status(400).send('Either imageUrl or imageData is required.');
+    return res.status(400).send('Missing required parameters: imageUrl or imageData');
   }
 
   try {
-    let response;
-    let success = false;
-
-    const currentToken = upscaleTokens[upscaleTokenIndex];
-
-    while (!success) {
-      try {
-        response = await axios.post('https://api.prodia.com/v1/upscale', {
-          imageUrl,
-          imageData,
-          resize,
-          model,
-        }, {
-          headers: {
-            'Authorization': `Bearer ${currentToken}`,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          }
-        });
-
-        success = true;
-      } catch (error) {
-        if (error.response && error.response.status === 403) {
-          console.log("Token expired. Trying with the next token...");
-          upscaleTokenIndex = (upscaleTokenIndex + 1) % upscaleTokens.length;
-        } else {
-          throw new Error(error.message);
-        }
+    const response = await axios.post('https://api.prodia.com/v1/upscale', {
+      resize,
+      model,
+      imageUrl,
+      imageData
+    }, {
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        'X-Prodia-Key': apiToken
       }
+    });
+
+    const imagePath = path.join(__dirname, 'cache', 'upscaled_image.png');
+    const imageStream = response.data;
+    const fileStream = fs.createWriteStream(imagePath);
+
+    if (!fs.existsSync(path.dirname(imagePath))) {
+      fs.mkdirSync(path.dirname(imagePath), { recursive: true });
     }
 
-    if (success) {
-      res.json(response.data);
-    } else {
-      res.status(500).send('Error upscaling image.');
-    }
+    imageStream.pipe(fileStream);
+
+    fileStream.on('finish', () => {
+      res.sendFile(imagePath);
+    });
+
+    fileStream.on('error', (err) => {
+      console.error("Stream error:", err);
+      res.status(500).send('Error processing image.');
+    });
   } catch (error) {
     console.error(error);
-    res.status(500).send('An error occurred.');
+    res.status(500).send('An error occurred while processing the image.');
   }
 });
 
