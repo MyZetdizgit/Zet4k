@@ -2,57 +2,49 @@ const express = require('express');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const { Prodia } = require('prodia.js');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const port = 3000;
 
-const apiToken = 'd80b712c-028b-4ba7-a9cf-111f59fb1e7b';
+app.get('/generate', async (req, res) => {
+  const { imageUrl } = req.query;
 
-app.post('/upscale', async (req, res) => {
-  const { imageUrl, imageData, resize = 2, model = 'ESRGAN_4x' } = req.body;
-
-  if (!imageUrl && !imageData) {
-    return res.status(400).send('Missing required parameters: imageUrl or imageData');
+  if (!imageUrl ) {
+    return res.status(400).send('Missing required parameters: imageUrl');
   }
 
   try {
-    const response = await axios.post('https://api.prodia.com/v1/upscale', {
-      resize,
-      model,
+    const { upscale, wait } = Prodia("3e6e7115-8f3c-486e-aaa8-63840d0b41f5");
+    const generate = await upscale({
       imageUrl,
-      imageData
-    }, {
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/json',
-        'X-Prodia-Key': apiToken
-      }
+      resize : 2,
+       model : 'ESRGAN_4x'
     });
 
-    const imagePath = path.join(__dirname, 'cache', 'upscaled_image.png');
-    const imageStream = response.data;
-    const fileStream = fs.createWriteStream(imagePath);
+    while (generate.status !== "succeeded" && generate.status !== "failed") {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      const job = await wait(generate);
 
-    if (!fs.existsSync(path.dirname(imagePath))) {
-      fs.mkdirSync(path.dirname(imagePath), { recursive: true });
+      if (job.status === "succeeded") {
+        const imagePath = path.join(__dirname, 'cache', 'generated.png');
+        const response = await axios.get(job.imageUrl, { responseType: 'stream' });
+        response.data.pipe(fs.createWriteStream(imagePath))
+          .on('finish', () => {
+            return res.sendFile(imagePath);
+          });
+        return;
+      }
     }
 
-    imageStream.pipe(fileStream);
-
-    fileStream.on('finish', () => {
-      res.sendFile(imagePath);
-    });
-
-    fileStream.on('error', (err) => {
-      console.error("Stream error:", err);
-      res.status(500).send('Error processing image.');
-    });
+    console.error("Image transformation failed");
+    res.status(500).send("Image transformation failed");
   } catch (error) {
     console.error(error);
-    res.status(500).send('An error occurred while processing the image.');
+    res.status(500).send("An error occurred while processing the image transformation");
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+app.listen(port, () => {
+  console.log(`API running on port ${port}`);
 });
