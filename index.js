@@ -19,7 +19,7 @@ app.get('/generate', async (req, res) => {
     const generate = await upscale({
       imageUrl,
       resize : 2,
-       model : "ESRGAN_4x"
+       model : "R-ESRGAN 4x+"
     });
 
     while (generate.status !== "succeeded" && generate.status !== "failed") {
