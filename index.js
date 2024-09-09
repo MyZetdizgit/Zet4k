@@ -18,7 +18,7 @@ app.get('/generate', async (req, res) => {
     const { upscale, wait } = Prodia("3e6e7115-8f3c-486e-aaa8-63840d0b41f5");
     const generate = await upscale({
       imageUrl,
-      resize : 2,
+      resize : 4,
        model : 'ESRGAN_4x'
     });
 
